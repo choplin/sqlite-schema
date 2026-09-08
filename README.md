@@ -50,16 +50,17 @@ SQLite extensions, virtual tables, application-defined functions, application-de
 
 ## Development
 
-Implementation has not started.
-The first slice should prove the architectural path rather than maximize syntax coverage:
+Implementation has started with a Rust 2024 package that loads desired SQL into an isolated database using bundled SQLite.
+The first slice will continue to prove the architectural path rather than maximize syntax coverage:
 
-1. Load desired SQL into an isolated SQLite database.
+1. Load desired SQL into an isolated SQLite database. (Implemented.)
 2. Inspect current and desired databases into the same intermediate representation.
 3. Plan a simple `CREATE TABLE` change.
 4. Serialize a human-readable and machine-readable plan.
 5. Apply the saved plan after verifying the source schema fingerprint.
 
-Contributor setup and required checks will be added when the implementation language and toolchain are selected.
+Development requires Rust 1.85 or newer.
+Run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` before submitting changes.
 
 ## Project documentation
 

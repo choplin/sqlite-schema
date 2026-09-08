@@ -1,0 +1,17 @@
+[package]
+name = "sqlite-schema"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[lib]
+name = "sqlite_schema"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sqlite-schema"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite = { version = "0.37.0", default-features = false, features = ["bundled", "hooks"] }
