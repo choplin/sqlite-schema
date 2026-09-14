@@ -2,7 +2,7 @@
 
 ## Summary
 
-`sqlite-schema` derives both current and desired state from databases inspected by the same SQLite-specific inspector.
+`sqlite-schema` derives both sides of a comparison from schema SQL or existing database files, then inspects the resulting databases with the same SQLite-specific inspector.
 It then converts semantic differences into migration operations that expose data safety, structural cost, and runtime-data dependencies separately.
 
 ## Background
@@ -41,10 +41,14 @@ The primary users are developers who own SQLite databases, keep their schema in 
 - Automatically inventing data transformations or resolving ambiguous renames.
 - Defining implementation packages, public APIs, or a plugin system in this design document.
 
-## Desired-state construction
+## Schema input construction
 
-The desired-state loader creates an isolated SQLite database and executes the supplied schema SQL with SQLite itself.
-The inspector then obtains the desired schema model from that database.
+Schema roles and input formats are independent. Either side of a comparison may be supplied as schema SQL or as an existing SQLite database file.
+For SQL input, the loader creates an isolated SQLite database and executes the supplied schema with SQLite itself.
+For database input, the loader opens the explicit path read-only without creating a missing file.
+The inspector then obtains the same schema model from either database.
+A comparison role does not imply an apply destination: a new current state can be represented by empty schema SQL during planning, while the output path is selected separately for apply.
+An explicit database-file input always refers to an existing file.
 
 This rule makes the SQLite runtime the syntax authority.
 The tool may still need a statement boundary mechanism for execution and may parse small expressions when comparison requires structure, but such parsing must not become an independent acceptance gate for otherwise valid SQLite schema SQL.
@@ -71,8 +75,22 @@ Formatting differences alone must not create perpetual diffs, while unknown clau
 
 ## Difference and operation separation
 
-The differ reports what changed.
-The planner decides how SQLite can realize that change.
+The pipeline has explicit typed boundaries:
+
+```text
+inspect(SchemaSource) -> SchemaModel
+diff(current: SchemaModel, desired: SchemaModel) -> SchemaDiff
+plan(SchemaDiff) -> MigrationPlan
+render(MigrationPlan) -> DDL
+```
+
+`SchemaSource` represents only an input format. It does not carry a current or desired role.
+The same inspection path constructs both schema models, and their position in the ordered `diff` inputs establishes the comparison direction.
+
+The differ reports what changed without choosing SQLite statements.
+The planner decides how SQLite can realize each change and whether it can be realized at all.
+The renderer emits DDL from the ordered executable operations in the plan; it does not derive DDL directly from raw input SQL or database catalogs.
+Blocked changes remain explicit plan outcomes rather than incomplete DDL.
 
 For example, a changed column constraint is one semantic difference.
 Depending on the complete table definition and supported SQLite version, the planner may realize it as a direct operation, a table rebuild, or a blocked operation.

@@ -4,11 +4,11 @@ use std::{
 };
 
 use rusqlite::Connection;
-use sqlite_schema::DesiredState;
+use sqlite_schema::SchemaDatabase;
 
 #[test]
-fn loads_multi_statement_schema_with_bundled_sqlite() -> rusqlite::Result<()> {
-    let desired = DesiredState::load(
+fn materializes_multi_statement_schema_with_bundled_sqlite() -> rusqlite::Result<()> {
+    let database = SchemaDatabase::from_sql(
         "
         CREATE TABLE users (
             id INTEGER PRIMARY KEY,
@@ -25,7 +25,7 @@ fn loads_multi_statement_schema_with_bundled_sqlite() -> rusqlite::Result<()> {
     )
     .expect("valid SQLite schema should load");
 
-    let objects = desired
+    let objects = database
         .connection()
         .prepare(
             "SELECT type, name FROM sqlite_schema
@@ -49,24 +49,24 @@ fn loads_multi_statement_schema_with_bundled_sqlite() -> rusqlite::Result<()> {
     );
 
     let runtime_version: String =
-        desired
+        database
             .connection()
             .query_row("SELECT sqlite_version()", [], |row| row.get(0))?;
-    assert_eq!(desired.sqlite_version(), runtime_version);
+    assert_eq!(database.sqlite_version(), runtime_version);
 
     Ok(())
 }
 
 #[test]
 fn applies_explicit_connection_configuration() -> rusqlite::Result<()> {
-    let desired = DesiredState::load("").expect("empty schema should load");
+    let database = SchemaDatabase::from_sql("").expect("empty schema should load");
 
     let foreign_keys: bool =
-        desired
+        database
             .connection()
             .pragma_query_value(None, "foreign_keys", |row| row.get(0))?;
     let trusted_schema: bool =
-        desired
+        database
             .connection()
             .pragma_query_value(None, "trusted_schema", |row| row.get(0))?;
 
@@ -77,14 +77,29 @@ fn applies_explicit_connection_configuration() -> rusqlite::Result<()> {
 }
 
 #[test]
+fn opens_existing_database_without_write_access() -> rusqlite::Result<()> {
+    let source = TestDatabase::new("read-only");
+    Connection::open(source.path())?.execute_batch("CREATE TABLE users (id INTEGER);")?;
+
+    let database = SchemaDatabase::open(source.path()).expect("existing database should open");
+    let error = database
+        .connection()
+        .execute_batch("CREATE TABLE forbidden (id INTEGER);")
+        .expect_err("database input must remain read-only");
+
+    assert!(error.to_string().contains("readonly"));
+    Ok(())
+}
+
+#[test]
 fn invalid_sql_has_actionable_context() {
-    let error = match DesiredState::load("CREATE TABL broken (id INTEGER);") {
+    let error = match SchemaDatabase::from_sql("CREATE TABL broken (id INTEGER);") {
         Err(error) => error,
         Ok(_) => panic!("invalid SQLite syntax should fail"),
     };
 
     let message = error.to_string();
-    assert!(message.contains("failed to apply desired schema SQL"));
+    assert!(message.contains("failed to apply schema SQL"));
     assert!(message.contains("using bundled SQLite"));
     assert!(message.contains("syntax error"));
 }
@@ -102,7 +117,7 @@ fn cannot_attach_and_change_a_target_database() -> rusqlite::Result<()> {
          DROP TABLE target.existing;
          CREATE TABL broken (id INTEGER);"
     );
-    let error = match DesiredState::load(&schema_sql) {
+    let error = match SchemaDatabase::from_sql(&schema_sql) {
         Err(error) => error,
         Ok(_) => panic!("schema SQL must not attach a target database"),
     };
@@ -129,7 +144,7 @@ fn cannot_write_a_vacuum_output_database() {
     let output_path = output.path().to_string_lossy().replace('\'', "''");
     let schema_sql = format!("VACUUM INTO '{output_path}';");
 
-    let error = match DesiredState::load(&schema_sql) {
+    let error = match SchemaDatabase::from_sql(&schema_sql) {
         Err(error) => error,
         Ok(_) => panic!("schema SQL must not write a VACUUM output database"),
     };
@@ -152,7 +167,7 @@ fn cannot_override_settings_or_execute_non_schema_statements() {
         "WITH RECURSIVE values_table(value) AS (SELECT 1 UNION ALL SELECT value + 1 FROM values_table WHERE value < 10) SELECT * FROM values_table;",
     ] {
         assert!(
-            DesiredState::load(schema_sql).is_err(),
+            SchemaDatabase::from_sql(schema_sql).is_err(),
             "schema construction should reject non-schema side effects: {schema_sql}"
         );
     }

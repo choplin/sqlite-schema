@@ -3,7 +3,7 @@
 ## Summary
 
 `sqlite-schema` is a SQLite-specific declarative schema migration tool.
-It turns a desired SQL schema and a target SQLite database into a reviewable, reproducible migration plan.
+It turns two schema inputs into a reviewable, reproducible migration plan. Either comparison role can use schema SQL or an existing SQLite database file as its input.
 
 The architecture uses SQLite itself to interpret SQL.
 Both the current and desired schemas pass through the same inspector before they are compared.
@@ -22,9 +22,11 @@ The following priorities determine the system boundaries:
 
 ## Core concepts
 
-**Desired schema** is the complete SQL definition that the user wants the database to have.
+**Desired schema** is the complete schema that the user wants the database to have.
 
-**Current schema** is the schema observed from the target SQLite database.
+**Current schema** is the schema used as the comparison baseline.
+
+**Schema source** is SQL interpreted in an isolated database or an existing database opened read-only. Source format is independent of whether the schema is current or desired.
 
 **Schema model** is the canonical intermediate representation obtained by inspecting a SQLite database.
 Current and desired schemas use the same model and inspector.
@@ -36,6 +38,42 @@ An operation may be a direct SQLite DDL statement, a coordinated table rebuild, 
 
 **Plan** is an ordered set of migration operations plus classifications, warnings, and a fingerprint of the source schema.
 
+## Core mental model
+
+Schema input, comparison direction, and migration realization are three separate concerns:
+
+```text
+SchemaSource::Sql ──────┐
+                       ├─ materialize ─> inspect ─> SchemaModel ──┐
+SchemaSource::Database ─┘                                        │
+                                                                ├─ diff(current, desired)
+SchemaSource::Sql ──────┐                                        │        │
+                       ├─ materialize ─> inspect ─> SchemaModel ──┘        v
+SchemaSource::Database ─┘                                            SchemaDiff
+                                                                         │
+                                                                         v
+                                                                  MigrationPlan
+                                                                         │
+                                                                         v
+                                                                        DDL
+```
+
+Each side independently selects a `SchemaSource` and produces a `SchemaModel` through the same inspection path.
+At this stage neither SQL nor a database file inherently means current or desired.
+
+Comparison direction is established only by the ordered pair passed to the differ:
+
+```text
+diff(current: SchemaModel, desired: SchemaModel) -> SchemaDiff
+```
+
+`SchemaDiff` records semantic differences without choosing SQLite statements.
+The planner converts those differences into ordered migration operations, including safety classifications, rebuild steps, and blocked outcomes.
+The renderer produces DDL only for operations that the plan establishes as executable.
+
+The database modified by `apply` is another explicit input.
+It is normally the database represented by the current model, but it is not inferred from the current schema source: the current model may have come from SQL, including empty SQL for a database that does not exist yet.
+
 ## Component ownership
 
 The target architecture separates the following responsibilities:
@@ -43,7 +81,7 @@ The target architecture separates the following responsibilities:
 | Component | Owns |
 | --- | --- |
 | CLI | Command parsing, input and output selection, confirmation, and exit behavior |
-| Desired-state loader | Creating an isolated SQLite database and applying the desired SQL |
+| Schema input loader | Creating an isolated SQLite database from SQL or opening an existing database read-only |
 | Inspector | Reading `sqlite_schema` and PRAGMA results into the canonical schema model |
 | Normalizer | Removing representation differences that do not change SQLite semantics |
 | Differ | Producing semantic changes between current and desired models |
@@ -51,22 +89,22 @@ The target architecture separates the following responsibilities:
 | Plan renderer | Human-readable, SQL, and machine-readable representations of one plan |
 | Applier | Fingerprint verification, transaction handling, execution, and post-apply verification |
 
-The schema model is the boundary between SQLite inspection and comparison.
-The migration plan is the boundary between planning and side effects.
+The schema model is the boundary between input inspection and comparison.
+The schema diff is the boundary between describing change and choosing how SQLite will realize it.
+The migration plan is the boundary between planning and side effects or rendered DDL.
 
 ## Planning flow
 
 `plan` follows one symmetric inspection path:
 
-1. Open the target database without scanning application rows and inspect its schema.
+1. Materialize the current input from SQL or an existing database file and inspect its schema without scanning application rows.
 2. Compute a deterministic fingerprint of the current schema model.
-3. Create an isolated temporary SQLite database.
-4. Apply the desired schema SQL with a declared SQLite version and controlled connection configuration.
-5. Inspect the desired database with the same inspector used for the target.
-6. Normalize both models.
-7. Generate semantic differences.
-8. Lower each difference into ordered migration operations.
-9. Classify each operation and render the plan.
+3. Materialize the desired input independently from SQL or an existing database file.
+4. Inspect the desired database with the same inspector used for the current input.
+5. Normalize both models.
+6. Generate semantic differences.
+7. Lower each difference into ordered migration operations.
+8. Classify each operation and render the plan.
 
 The planner does not estimate bytes, duration, or temporary disk consumption because it does not inspect application data volume.
 It reports structural cost, such as whether a table rebuild and full row copy are required.
@@ -87,7 +125,8 @@ The exact transaction boundary for table rebuilds is owned by the [schema planni
 
 ## Boundaries and invariants
 
-- Desired SQL is validated by executing it in SQLite, not by accepting it solely through a separate SQL grammar.
+- Schema SQL is validated by executing it in SQLite, not by accepting it solely through a separate SQL grammar.
+- Current and desired roles do not determine whether an input must be SQL or a database file.
 - Current and desired schema models come from the same inspector.
 - Unknown schema properties are not silently discarded.
 - A table rebuild includes dependent indexes, triggers, views, and foreign-key considerations in one coordinated operation.

@@ -1,7 +1,7 @@
 # sqlite-schema
 
 `sqlite-schema` is a planned declarative schema migration tool for SQLite.
-It will compare a desired SQL schema with an existing database, show a reviewable migration plan, and apply that plan with explicit safety checks.
+It will compare two schema inputs, supplied as SQL or existing database files, show a reviewable migration plan, and apply that plan with explicit safety checks.
 
 > [!IMPORTANT]
 > The project is in its design phase.
@@ -31,12 +31,15 @@ The exact command-line interface is not implemented and may change during the fi
 
 The architecture follows the inspector-only idea used by [pgschema](https://github.com/pgplex/pgschema), adapted for SQLite:
 
-1. Inspect the target database to obtain the current schema model.
-2. Apply the desired SQL to an isolated temporary SQLite database.
-3. Inspect the temporary database through the same code path to obtain the desired schema model.
-4. Diff the two models and produce an ordered migration plan.
-5. Classify operations by data safety, execution cost, and whether runtime data can affect success.
-6. Recheck the target schema fingerprint before applying the plan.
+```text
+current SchemaSource ── inspect ──> SchemaModel ──┐
+                                                 ├─ diff ─> SchemaDiff ─> MigrationPlan ─> DDL
+desired SchemaSource ── inspect ──> SchemaModel ──┘
+```
+
+SQL and database files are input formats, not comparison roles. Either the current or desired source may use either format.
+The roles begin only when two schema models are passed to the differ: the first is the current baseline and the second is the desired result.
+The resulting diff describes what changed; planning decides how to realize it safely, and only then can supported operations be rendered as DDL.
 
 Read the [architecture overview](docs/architecture.md) for the system boundaries and the [schema planning design](docs/design/schema-planning.md) for the current design contract.
 
@@ -50,11 +53,11 @@ SQLite extensions, virtual tables, application-defined functions, application-de
 
 ## Development
 
-Implementation has started with a Rust 2024 package that loads desired SQL into an isolated database using bundled SQLite.
+Implementation has started with a Rust 2024 package that loads schema SQL into an isolated database using bundled SQLite.
 The first slice will continue to prove the architectural path rather than maximize syntax coverage:
 
-1. Load desired SQL into an isolated SQLite database. (Implemented.)
-2. Inspect current and desired databases into the same intermediate representation.
+1. Load schema SQL into an isolated SQLite database. (Implemented.)
+2. Inspect SQL or database-file inputs into the same intermediate representation.
 3. Plan a simple `CREATE TABLE` change.
 4. Serialize a human-readable and machine-readable plan.
 5. Apply the saved plan after verifying the source schema fingerprint.
