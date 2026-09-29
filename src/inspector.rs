@@ -81,11 +81,7 @@ fn inspect_connection(connection: &Connection) -> Result<SchemaModel, InspectErr
 
     Ok(SchemaModel::new(
         sqlite_version,
-        Some(Table {
-            name: object.name.clone(),
-            create_sql,
-            columns,
-        }),
+        Some(Table::new(object.name.clone(), create_sql, columns)),
     ))
 }
 
