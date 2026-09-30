@@ -63,6 +63,10 @@ The first slice will continue to prove the architectural path rather than maximi
 5. Apply the saved plan after verifying the source schema fingerprint.
 
 Development requires Rust 1.85 or newer.
+
+Run `nix develop` to enter the pinned Rust development environment, or use
+`direnv allow` when direnv is configured with Nix support.
+
 Run `cargo fmt --check`, `cargo clippy --all-targets --all-features -- -D warnings`, and `cargo test` before submitting changes.
 
 ## Project documentation
