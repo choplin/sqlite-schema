@@ -89,10 +89,60 @@ impl SchemaDatabase {
         })
     }
 
+    /// Opens an existing SQLite database for applying a migration.
+    pub(crate) fn open_writable(path: impl AsRef<Path>) -> Result<Self, SchemaDatabaseError> {
+        let path = path.as_ref();
+        let sqlite_version = rusqlite::version().to_owned();
+        let resolved_path = path
+            .canonicalize()
+            .map_err(|source| SchemaDatabaseError::Path {
+                context: format!(
+                    "failed to resolve existing target database {}",
+                    path.display()
+                ),
+                sqlite_version: sqlite_version.clone(),
+                source,
+            })?;
+        let connection =
+            Connection::open_with_flags(&resolved_path, OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(|source| {
+                    SchemaDatabaseError::sqlite(
+                        format!(
+                            "failed to open target database {} for writing",
+                            resolved_path.display()
+                        ),
+                        sqlite_version.clone(),
+                        source,
+                    )
+                })?;
+
+        connection
+            .execute_batch(CONNECTION_CONFIGURATION)
+            .map_err(|source| {
+                SchemaDatabaseError::sqlite(
+                    format!(
+                        "failed to configure target database {}",
+                        resolved_path.display()
+                    ),
+                    sqlite_version.clone(),
+                    source,
+                )
+            })?;
+
+        Ok(Self {
+            connection,
+            sqlite_version,
+        })
+    }
+
     /// Returns the materialized database connection for schema inspection.
     #[must_use]
     pub fn connection(&self) -> &Connection {
         &self.connection
+    }
+
+    pub(crate) fn connection_mut(&mut self) -> &mut Connection {
+        &mut self.connection
     }
 
     /// Returns the bundled SQLite runtime version used for this database.

@@ -8,13 +8,13 @@ use std::{
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use sqlite_schema::{
-    SchemaSource, diff_schemas, inspect_schema, plan_migration, render_plan_json,
-    render_plan_summary,
+    SchemaSource, apply_migration, diff_schemas, inspect_schema, parse_plan_json, plan_migration,
+    render_plan_json, render_plan_summary,
 };
 
 #[derive(Debug, Parser)]
 #[command(name = "sqlite-schema")]
-#[command(about = "Plan reviewable SQLite schema changes")]
+#[command(about = "Plan and apply reviewable SQLite schema changes")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -32,6 +32,14 @@ enum Command {
         /// Destination for the versioned JSON plan.
         #[arg(long, value_name = "PLAN_JSON")]
         output: PathBuf,
+    },
+    /// Apply a saved migration plan after verifying the target schema.
+    Apply {
+        /// Existing SQLite database to update.
+        database: PathBuf,
+        /// Saved versioned migration plan.
+        #[arg(long, value_name = "PLAN_JSON")]
+        plan: PathBuf,
     },
 }
 
@@ -52,7 +60,24 @@ fn run(cli: Cli) -> Result<()> {
             file,
             output,
         } => run_plan(database, file, output),
+        Command::Apply { database, plan } => run_apply(database, plan),
     }
+}
+
+fn run_apply(database: PathBuf, plan_path: PathBuf) -> Result<()> {
+    let contents = fs::read(&plan_path)
+        .with_context(|| format!("failed to read migration plan {}", plan_path.display()))?;
+    let plan = parse_plan_json(&contents)
+        .with_context(|| format!("failed to load migration plan {}", plan_path.display()))?;
+    apply_migration(&database, &plan)
+        .with_context(|| format!("failed to apply migration to {}", database.display()))?;
+
+    println!(
+        "Applied plan {} to {}",
+        plan_path.display(),
+        database.display()
+    );
+    Ok(())
 }
 
 fn run_plan(database: PathBuf, schema_file: PathBuf, output: PathBuf) -> Result<()> {

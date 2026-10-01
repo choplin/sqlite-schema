@@ -9,6 +9,7 @@ pub const PLAN_FORMAT_VERSION: u32 = 1;
 
 /// A complete, ordered migration plan that can be reviewed and saved.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct MigrationPlan {
     format_version: u32,
     sqlite_version: String,
@@ -51,6 +52,7 @@ impl MigrationPlan {
 
 /// One executable migration operation and its independent classifications.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct PlannedOperation {
     operation: OperationKind,
     table: String,
@@ -138,6 +140,22 @@ pub enum StructuralCost {
     Direct,
 }
 
+/// Parses one supported machine-readable migration plan.
+pub fn parse_plan_json(contents: &[u8]) -> Result<MigrationPlan, PlanReadError> {
+    let value: serde_json::Value = serde_json::from_slice(contents).map_err(PlanReadError::Json)?;
+    let version = value
+        .get("format_version")
+        .and_then(serde_json::Value::as_u64)
+        .and_then(|version| u32::try_from(version).ok())
+        .ok_or(PlanReadError::MissingFormatVersion)?;
+
+    if version != PLAN_FORMAT_VERSION {
+        return Err(PlanReadError::UnsupportedFormatVersion { version });
+    }
+
+    serde_json::from_value(value).map_err(PlanReadError::Json)
+}
+
 impl StructuralCost {
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
@@ -223,6 +241,44 @@ impl fmt::Display for PlanError {
 }
 
 impl Error for PlanError {}
+
+/// A saved plan could not be read as the supported artifact format.
+#[derive(Debug)]
+pub enum PlanReadError {
+    /// The plan is not valid JSON or does not match the versioned schema.
+    Json(serde_json::Error),
+    /// The plan does not identify its format version as a non-negative integer.
+    MissingFormatVersion,
+    /// The plan uses a format this executable does not support.
+    UnsupportedFormatVersion {
+        /// Version found in the plan artifact.
+        version: u32,
+    },
+}
+
+impl fmt::Display for PlanReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Json(source) => write!(formatter, "invalid migration plan: {source}"),
+            Self::MissingFormatVersion => {
+                write!(formatter, "migration plan has no valid format_version")
+            }
+            Self::UnsupportedFormatVersion { version } => write!(
+                formatter,
+                "unsupported migration plan format version {version}; expected {PLAN_FORMAT_VERSION}"
+            ),
+        }
+    }
+}
+
+impl Error for PlanReadError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match self {
+            Self::Json(source) => Some(source),
+            Self::MissingFormatVersion | Self::UnsupportedFormatVersion { .. } => None,
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

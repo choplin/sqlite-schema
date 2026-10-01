@@ -40,7 +40,7 @@ pub fn inspect_schema(source: SchemaSource<'_>) -> Result<SchemaModel, InspectEr
     }
 }
 
-fn inspect_connection(connection: &Connection) -> Result<SchemaModel, InspectError> {
+pub(crate) fn inspect_connection(connection: &Connection) -> Result<SchemaModel, InspectError> {
     let sqlite_version = connection
         .query_row("SELECT sqlite_version()", [], |row| row.get(0))
         .map_err(|source| InspectError::sqlite("failed to read SQLite runtime version", source))?;

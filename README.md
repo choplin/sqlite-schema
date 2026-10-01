@@ -1,11 +1,11 @@
 # sqlite-schema
 
-`sqlite-schema` is a planned declarative schema migration tool for SQLite.
-It will compare two schema inputs, supplied as SQL or existing database files, show a reviewable migration plan, and apply that plan with explicit safety checks.
+`sqlite-schema` is a declarative schema migration tool for SQLite.
+It compares two schema inputs, supplied as SQL or existing database files, produces a reviewable migration plan, and applies that plan with explicit safety checks.
 
 > [!IMPORTANT]
-> The project is in its design phase.
-> No working CLI has been released yet.
+> The project is under active development and has not been released.
+> The CLI currently supports one end-to-end case: creating a single ordinary table in an existing empty database.
 
 ## Why sqlite-schema?
 
@@ -19,13 +19,11 @@ It will compare two schema inputs, supplied as SQL or existing database files, s
 The intended interface follows a state-based workflow:
 
 ```console
-$ sqlite-schema dump app.db > schema.sql
-$ $EDITOR schema.sql
-$ sqlite-schema plan app.db --file schema.sql
+$ sqlite-schema plan app.db --file schema.sql --output plan.json
 $ sqlite-schema apply app.db --plan plan.json
 ```
 
-The exact command-line interface is not implemented and may change during the first development milestone.
+The command-line interface may change during the first development milestone.
 
 ## Design
 
@@ -54,13 +52,13 @@ SQLite extensions, virtual tables, application-defined functions, application-de
 ## Development
 
 Implementation has started with a Rust 2024 package that loads schema SQL into an isolated database using bundled SQLite.
-The first slice will continue to prove the architectural path rather than maximize syntax coverage:
+The first slice proves the architectural path rather than maximizing syntax coverage:
 
 1. Load schema SQL into an isolated SQLite database. (Implemented.)
-2. Inspect SQL or database-file inputs into the same intermediate representation.
-3. Plan a simple `CREATE TABLE` change.
-4. Serialize a human-readable and machine-readable plan.
-5. Apply the saved plan after verifying the source schema fingerprint.
+2. Inspect SQL or database-file inputs into the same intermediate representation. (Implemented.)
+3. Plan a simple `CREATE TABLE` change. (Implemented.)
+4. Serialize a human-readable and machine-readable plan. (Implemented.)
+5. Apply the saved plan after verifying the source schema fingerprint. (Implemented.)
 
 Development requires Rust 1.85 or newer.
 
